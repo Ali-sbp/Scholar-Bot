@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scholar
+      POSTGRES_PASSWORD: scholar
+      POSTGRES_DB: scholar_bot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  bot:
+    build: .
+    env_file: .env
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+asyncpg://scholar:scholar@db:5432/scholar_bot
+    restart: unless-stopped
+
+volumes:
+  pgdata:

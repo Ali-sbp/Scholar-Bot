@@ -1,0 +1,10 @@
+aiogram>=3.13
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.29
+apscheduler>=3.10
+aiohttp>=3.9
+beautifulsoup4>=4.12
+lxml>=5.0
+groq>=0.11
+aiosmtplib>=3.0
+python-dotenv>=1.0
