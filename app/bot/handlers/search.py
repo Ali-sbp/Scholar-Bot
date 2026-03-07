@@ -6,9 +6,15 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards import main_menu_kb, skip_kb
+from app.bot.keyboards import (
+    MENU_BUTTON_TEXTS,
+    language_kb,
+    main_menu_kb,
+    results_count_kb,
+    skip_kb,
+)
 from app.storage.database import async_session
 from app.subscriptions.manager import get_or_create_user, search_and_store
 
@@ -18,6 +24,8 @@ router = Router()
 class SearchForm(StatesGroup):
     keywords = State()
     authors = State()
+    count = State()
+    language = State()
 
 
 @router.message(Command("search"))
@@ -31,6 +39,22 @@ async def start_search(message: Message, state: FSMContext) -> None:
     )
 
 
+# ── Cancel on menu-button / command during any SearchForm state ─────
+@router.message(SearchForm.keywords, F.text.in_(MENU_BUTTON_TEXTS))
+@router.message(SearchForm.authors, F.text.in_(MENU_BUTTON_TEXTS))
+async def cancel_search_on_menu(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("🔍 Поиск отменён.", reply_markup=main_menu_kb())
+
+
+@router.message(SearchForm.keywords, F.text.startswith("/"))
+@router.message(SearchForm.authors, F.text.startswith("/"))
+async def cancel_search_on_command(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("🔍 Поиск отменён.", reply_markup=main_menu_kb())
+
+
+# ── Step 1: keywords ───────────────────────────────────────────────
 @router.message(SearchForm.keywords)
 async def search_keywords(message: Message, state: FSMContext) -> None:
     keywords = [k.strip() for k in message.text.split(",") if k.strip()]
@@ -42,10 +66,14 @@ async def search_keywords(message: Message, state: FSMContext) -> None:
     await message.answer("👤 Укажи авторов (через запятую), или пропусти:", reply_markup=skip_kb())
 
 
+# ── Step 2: authors ────────────────────────────────────────────────
 @router.callback_query(SearchForm.authors, F.data == "skip")
 async def skip_authors_search(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(authors=[])
-    await _do_search(callback.message, state, callback.from_user.id)
+    await state.set_state(SearchForm.count)
+    await callback.message.answer(
+        "📊 Сколько результатов на источник?", reply_markup=results_count_kb()
+    )
     await callback.answer()
 
 
@@ -53,16 +81,37 @@ async def skip_authors_search(callback: CallbackQuery, state: FSMContext) -> Non
 async def search_authors(message: Message, state: FSMContext) -> None:
     authors = [a.strip() for a in message.text.split(",") if a.strip()]
     await state.update_data(authors=authors)
-    await _do_search(message, state, message.from_user.id)
+    await state.set_state(SearchForm.count)
+    await message.answer(
+        "📊 Сколько результатов на источник?", reply_markup=results_count_kb()
+    )
 
 
-# Need to import CallbackQuery for the skip handler
-from aiogram.types import CallbackQuery  # noqa: E402
+# ── Step 3: count ──────────────────────────────────────────────────
+@router.callback_query(SearchForm.count, F.data.startswith("count:"))
+async def search_count(callback: CallbackQuery, state: FSMContext) -> None:
+    count = int(callback.data.split(":")[1])
+    await state.update_data(count=count)
+    await state.set_state(SearchForm.language)
+    await callback.message.answer("🌐 Язык статей?", reply_markup=language_kb())
+    await callback.answer()
+
+
+# ── Step 4: language → run search ──────────────────────────────────
+@router.callback_query(SearchForm.language, F.data.startswith("lang:"))
+async def search_language(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = callback.data.split(":")[1]
+    await state.update_data(language=lang)
+    await callback.answer()
+    await _do_search(callback.message, state, callback.from_user.id)
 
 
 async def _do_search(message: Message, state: FSMContext, user_id: int) -> None:
     data = await state.get_data()
     await state.clear()
+
+    count = data.get("count", 10)
+    language = data.get("language", "any")
 
     await message.answer("🔄 Ищу статьи… Это может занять некоторое время.")
 
@@ -72,6 +121,8 @@ async def _do_search(message: Message, state: FSMContext, user_id: int) -> None:
             session,
             keywords=data["keywords"],
             authors=data.get("authors", []) or None,
+            max_per_source=count,
+            language=language,
         )
 
     if not results:

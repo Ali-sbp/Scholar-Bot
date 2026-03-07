@@ -21,7 +21,11 @@ class CrossRefSource(BaseSource):
         journals: list[str] | None = None,
         max_results: int = 10,
     ) -> list[ArticleData]:
-        query = " ".join(keywords)
+        # Use quoted phrases for multi-word keywords
+        parts = []
+        for kw in keywords:
+            parts.append(f'"{kw}"' if " " in kw else kw)
+        query = " ".join(parts)
         params: dict[str, str] = {
             "query": query,
             "rows": str(max_results),

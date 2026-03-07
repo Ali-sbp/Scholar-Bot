@@ -5,6 +5,16 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
+# Texts on the main reply‑keyboard — used to detect when user presses
+# a menu button while inside an FSM flow so we can cancel gracefully.
+MENU_BUTTON_TEXTS = frozenset({
+    "🔍 Поиск статей",
+    "📌 Новая подписка",
+    "📋 Мои подписки",
+    "📧 Настроить email",
+    "ℹ️ Помощь",
+})
+
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
@@ -14,6 +24,45 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="ℹ️ Помощь")],
         ],
         resize_keyboard=True,
+    )
+
+
+def cancel_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel")]]
+    )
+
+
+def email_manage_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Изменить email", callback_data="email:change")],
+            [InlineKeyboardButton(text="🗑 Удалить email", callback_data="email:delete")],
+        ]
+    )
+
+
+def results_count_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="5", callback_data="count:5"),
+                InlineKeyboardButton(text="10", callback_data="count:10"),
+                InlineKeyboardButton(text="20", callback_data="count:20"),
+            ]
+        ]
+    )
+
+
+def language_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🌐 Любой", callback_data="lang:any"),
+                InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru"),
+                InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en"),
+            ]
+        ]
     )
 
 

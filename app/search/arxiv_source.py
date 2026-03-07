@@ -24,12 +24,25 @@ class ArxivSource(BaseSource):
         query_parts: list[str] = []
         if keywords:
             for kw in keywords:
-                query_parts.append(f"all:{kw}")
+                # Wrap multi-word terms in quotes for phrase search
+                if " " in kw:
+                    query_parts.append(f'all:"{kw}"')
+                else:
+                    query_parts.append(f"all:{kw}")
         if authors:
             for au in authors:
                 query_parts.append(f"au:{au}")
 
-        search_query = " AND ".join(query_parts) if query_parts else "all:science"
+        # OR between keyword phrases for broader coverage,
+        # AND with author filters
+        kw_parts = [p for p in query_parts if p.startswith("all:")]
+        au_parts = [p for p in query_parts if p.startswith("au:")]
+        parts = []
+        if kw_parts:
+            parts.append("(" + " OR ".join(kw_parts) + ")")
+        if au_parts:
+            parts.append("(" + " AND ".join(au_parts) + ")")
+        search_query = " AND ".join(parts) if parts else "all:science"
 
         params = {
             "search_query": search_query,

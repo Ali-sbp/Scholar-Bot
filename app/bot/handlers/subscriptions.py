@@ -4,6 +4,7 @@ from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
@@ -18,7 +19,8 @@ router = Router()
 # ── list subscriptions ──────────────────────────────────────────────
 @router.message(Command("subscriptions"))
 @router.message(F.text == "📋 Мои подписки")
-async def list_subscriptions(message: Message) -> None:
+async def list_subscriptions(message: Message, state: FSMContext) -> None:
+    await state.clear()
     async with async_session() as session:
         subs = await get_user_subscriptions(session, message.from_user.id)
 

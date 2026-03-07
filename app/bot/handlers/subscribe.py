@@ -8,7 +8,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards import after_subscribe_kb, interval_kb, main_menu_kb, skip_kb
+from app.bot.keyboards import (
+    MENU_BUTTON_TEXTS,
+    after_subscribe_kb,
+    interval_kb,
+    main_menu_kb,
+    skip_kb,
+)
 from app.storage.database import async_session
 from app.subscriptions.manager import create_subscription, get_or_create_user, search_and_store
 
@@ -32,6 +38,23 @@ async def start_subscribe(message: Message, state: FSMContext) -> None:
         "Например: <i>теория игр, game theory, Nash equilibrium</i>",
         parse_mode="HTML",
     )
+
+
+# ── Cancel on menu-button / command during any SubscribeForm state ──
+@router.message(SubscribeForm.keywords, F.text.in_(MENU_BUTTON_TEXTS))
+@router.message(SubscribeForm.authors, F.text.in_(MENU_BUTTON_TEXTS))
+@router.message(SubscribeForm.journals, F.text.in_(MENU_BUTTON_TEXTS))
+async def cancel_sub_on_menu(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("📌 Создание подписки отменено.", reply_markup=main_menu_kb())
+
+
+@router.message(SubscribeForm.keywords, F.text.startswith("/"))
+@router.message(SubscribeForm.authors, F.text.startswith("/"))
+@router.message(SubscribeForm.journals, F.text.startswith("/"))
+async def cancel_sub_on_command(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("📌 Создание подписки отменено.", reply_markup=main_menu_kb())
 
 
 @router.message(SubscribeForm.keywords)

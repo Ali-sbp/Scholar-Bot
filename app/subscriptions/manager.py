@@ -60,6 +60,8 @@ async def search_and_store(
     keywords: list[str] | None = None,
     authors: list[str] | None = None,
     journals: list[str] | None = None,
+    max_per_source: int = 10,
+    language: str = "any",
 ) -> list[tuple[Article, Annotation]]:
     """Search, store articles, generate missing annotations, optionally link to subscription."""
     kw = keywords or (subscription.keywords if subscription else [])
@@ -70,7 +72,8 @@ async def search_and_store(
         keywords=kw,
         authors=au,
         journals=jn,
-        max_per_source=5,
+        max_per_source=max_per_source,
+        language=language,
     )
 
     results: list[tuple[Article, Annotation]] = []
@@ -175,6 +178,17 @@ async def delete_subscription(session: AsyncSession, subscription_id: int, user_
 async def set_user_email(session: AsyncSession, user_id: int, email: str) -> None:
     user = await get_or_create_user(session, user_id)
     user.email = email
+    await session.commit()
+
+
+async def get_user_email(session: AsyncSession, user_id: int) -> str | None:
+    user = await get_or_create_user(session, user_id)
+    return user.email
+
+
+async def delete_user_email(session: AsyncSession, user_id: int) -> None:
+    user = await get_or_create_user(session, user_id)
+    user.email = None
     await session.commit()
 
 
