@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import aiohttp
-from bs4 import BeautifulSoup
 
 from .base import ArticleData, BaseSource
 
 logger = logging.getLogger(__name__)
 
-CYBERLENINKA_SEARCH = "https://cyberleninka.ru/search"
+CYBERLENINKA_API = "https://cyberleninka.ru/api/search"
+
+# Strip HTML bold tags that CyberLeninka injects for highlighting
+_BOLD_RE = re.compile(r"</?b>")
 
 
 class CyberLeninkaSource(BaseSource):
-    """Scrapes CyberLeninka search results (no official API available)."""
+    """Fetches CyberLeninka results via its internal JSON API."""
 
     async def search(
         self,
@@ -23,123 +26,69 @@ class CyberLeninkaSource(BaseSource):
         max_results: int = 10,
     ) -> list[ArticleData]:
         query = " ".join(keywords)
-        # CyberLeninka encodes the query inside the URL path when JS is off,
-        # but the ?q= parameter works for server-side rendering.
-        params = {"q": query, "page": "1"}
+        payload = {
+            "mode": "articles",
+            "q": query,
+            "size": max_results,
+        }
 
         headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Referer": "https://cyberleninka.ru/",
+            "User-Agent": "Mozilla/5.0 (compatible; ScholarBot/1.0)",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
         }
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    CYBERLENINKA_SEARCH, params=params, headers=headers,
+                async with session.post(
+                    CYBERLENINKA_API,
+                    json=payload,
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=30),
-                    allow_redirects=True,
                 ) as resp:
                     if resp.status != 200:
-                        logger.warning(
-                            "CyberLeninka returned status %s (url: %s)", resp.status, resp.url
-                        )
+                        logger.warning("CyberLeninka API returned status %s", resp.status)
                         return []
-                    html = await resp.text()
+                    data = await resp.json()
         except Exception as e:
             logger.error("CyberLeninka request failed: %s", e)
             return []
 
-        logger.info("CyberLeninka: got %d bytes of HTML", len(html))
+        raw_articles = data.get("articles", [])
+        logger.info(
+            "CyberLeninka: found=%s, returned %d articles",
+            data.get("found", "?"),
+            len(raw_articles),
+        )
 
-        soup = BeautifulSoup(html, "lxml")
         articles: list[ArticleData] = []
-
-        # CyberLeninka uses multiple possible layouts — try all known selectors
-        items = soup.select("ul.list li")
-        if not items:
-            items = soup.select(".search-results .article-item")
-        if not items:
-            items = soup.select("article")
-        if not items:
-            items = soup.select("[class*='search'] li")
-        if not items:
-            # Fallback: find all links pointing to /article/
-            items = []
-            for a_tag in soup.find_all("a", href=lambda h: h and "/article/" in h):
-                parent = a_tag.find_parent(["li", "div", "article"])
-                if parent and parent not in items:
-                    items.append(parent)
-
-        if not items:
-            logger.warning(
-                "CyberLeninka: 0 result items found. First 500 chars: %.500s",
-                html[:500],
-            )
-
-        logger.info("CyberLeninka: found %d result items", len(items))
-
-        for item in items:
-            link_tag = item.select_one("a[href*='/article/']")
-            if not link_tag:
-                link_tag = (
-                    item
-                    if item.name == "a" and "/article/" in item.get("href", "")
-                    else None
-                )
-            if not link_tag:
-                continue
-
-            href = link_tag.get("href", "")
-            full_url = f"https://cyberleninka.ru{href}" if href.startswith("/") else href
-
-            # Title: try multiple selectors
-            title = ""
-            for sel in ["h2", "h3", ".title", "span.title", "i"]:
-                tag = item.select_one(sel)
-                if tag:
-                    title = tag.get_text(strip=True)
-                    break
-            if not title:
-                title = link_tag.get_text(strip=True)
+        for item in raw_articles:
+            title = _BOLD_RE.sub("", item.get("name", "")).strip()
             if not title:
                 continue
 
-            # Annotation / snippet text
-            abstract = None
-            for sel in [".abstract", ".annotation", ".descr", "p", "span.abstract"]:
-                tag = item.select_one(sel)
-                if tag and len(tag.get_text(strip=True)) > 20:
-                    abstract = tag.get_text(strip=True)
-                    break
+            link = item.get("link", "")
+            url = f"https://cyberleninka.ru{link}" if link.startswith("/") else link
 
-            # Authors
-            author_list: list[str] = []
-            for sel in [".author", ".authors", "span.author"]:
-                tag = item.select_one(sel)
-                if tag:
-                    author_list = [a.strip() for a in tag.get_text().split(",") if a.strip()]
-                    break
+            annotation = item.get("annotation", "")
+            if annotation:
+                annotation = _BOLD_RE.sub("", annotation).strip()
 
-            slug = href.rstrip("/").split("/")[-1] if href else title[:60]
+            author_list = item.get("authors") or []
+            journal_name = item.get("journal")
+
+            slug = link.rstrip("/").split("/")[-1] if link else title[:60]
 
             articles.append(
                 ArticleData(
                     external_id=f"cyberleninka:{slug}",
                     source="cyberleninka",
                     title=title,
-                    url=full_url,
+                    url=url,
                     authors=author_list,
-                    abstract=abstract,
+                    journal=journal_name,
+                    abstract=annotation or None,
                 )
             )
-
-            if len(articles) >= max_results:
-                break
 
         return articles
