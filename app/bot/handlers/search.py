@@ -14,6 +14,7 @@ from app.bot.keyboards import (
     main_menu_kb,
     results_count_kb,
     skip_kb,
+    sort_kb,
 )
 from app.storage.database import async_session
 from app.subscriptions.manager import get_or_create_user, search_and_store
@@ -26,6 +27,7 @@ class SearchForm(StatesGroup):
     authors = State()
     count = State()
     language = State()
+    sort = State()
 
 
 @router.message(Command("search"))
@@ -97,11 +99,21 @@ async def search_count(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-# ── Step 4: language → run search ──────────────────────────────────
+# ── Step 4: language ───────────────────────────────────────────────
 @router.callback_query(SearchForm.language, F.data.startswith("lang:"))
 async def search_language(callback: CallbackQuery, state: FSMContext) -> None:
     lang = callback.data.split(":")[1]
     await state.update_data(language=lang)
+    await state.set_state(SearchForm.sort)
+    await callback.message.answer("📋 Сортировка результатов?", reply_markup=sort_kb())
+    await callback.answer()
+
+
+# ── Step 5: sort → run search ──────────────────────────────────────
+@router.callback_query(SearchForm.sort, F.data.startswith("sort:"))
+async def search_sort(callback: CallbackQuery, state: FSMContext) -> None:
+    sort_mode = callback.data.split(":")[1]
+    await state.update_data(sort=sort_mode)
     await callback.answer()
     await _do_search(callback.message, state, callback.from_user.id)
 
@@ -112,6 +124,7 @@ async def _do_search(message: Message, state: FSMContext, user_id: int) -> None:
 
     count = data.get("count", 10)
     language = data.get("language", "any")
+    sort_mode = data.get("sort", "date")
 
     await message.answer("🔄 Ищу статьи… Это может занять некоторое время.")
 
@@ -123,6 +136,7 @@ async def _do_search(message: Message, state: FSMContext, user_id: int) -> None:
             authors=data.get("authors", []) or None,
             max_per_source=count,
             language=language,
+            sort=sort_mode,
         )
 
     if not results:
@@ -132,7 +146,8 @@ async def _do_search(message: Message, state: FSMContext, user_id: int) -> None:
         )
         return
 
-    header = f"📚 Найдено статей: {len(results)}\n\n"
+    sort_label = {"date": "по дате", "cited": "по цитируемости", "relevance": "по релевантности"}.get(sort_mode, "")
+    header = f"📚 Найдено статей: {len(results)} ({sort_label})\n\n"
     chunks: list[str] = [header]
     for i, (article, annotation) in enumerate(results, 1):
         url = article.url if article.url.startswith(("http://", "https://")) else ""

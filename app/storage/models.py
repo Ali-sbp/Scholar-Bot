@@ -42,6 +42,7 @@ class Subscription(Base):
     authors: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     journals: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     check_interval_hrs: Mapped[int] = mapped_column(Integer, default=24)
+    language: Mapped[str] = mapped_column(String, default="any", server_default="any")
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

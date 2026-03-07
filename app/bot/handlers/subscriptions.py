@@ -30,10 +30,14 @@ async def list_subscriptions(message: Message, state: FSMContext) -> None:
 
     for sub in subs:
         kw = escape(", ".join(sub.keywords))
+        lang_label = {"any": "Любой", "ru": "Русский", "en": "English"}.get(
+            getattr(sub, "language", "any") or "any", "Любой"
+        )
         text = (
             f"📌 <b>{escape(sub.name)}</b>\n"
             f"🔑 Ключевые слова: {kw}\n"
             f"⏰ Проверка каждые {sub.check_interval_hrs}ч\n"
+            f"🌐 Язык: {lang_label}\n"
         )
         if sub.authors:
             text += f"👤 Авторы: {escape(', '.join(sub.authors))}\n"

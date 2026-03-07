@@ -17,6 +17,7 @@ class ArticleData:
     journal: str | None = None
     abstract: str | None = None
     published_at: datetime | None = None
+    citation_count: int | None = None
 
 
 class BaseSource(ABC):

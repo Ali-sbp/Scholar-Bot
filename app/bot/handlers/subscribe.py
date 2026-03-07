@@ -12,8 +12,11 @@ from app.bot.keyboards import (
     MENU_BUTTON_TEXTS,
     after_subscribe_kb,
     interval_kb,
+    language_kb,
     main_menu_kb,
+    results_count_kb,
     skip_kb,
+    sort_kb,
 )
 from app.storage.database import async_session
 from app.subscriptions.manager import create_subscription, get_or_create_user, search_and_store
@@ -26,6 +29,13 @@ class SubscribeForm(StatesGroup):
     authors = State()
     journals = State()
     interval = State()
+    language = State()
+
+
+class SubSearchForm(StatesGroup):
+    """Mini-FSM for the 'search now' flow after creating a subscription."""
+    count = State()
+    sort = State()
 
 
 # ── step 1: keywords ───────────────────────────────────────────────
@@ -106,14 +116,26 @@ async def process_journals(message: Message, state: FSMContext) -> None:
     await message.answer("⏰ Как часто проверять новые статьи?", reply_markup=interval_kb())
 
 
-# ── step 4: interval → create sub → ask search now? ────────────────
+# ── step 4: interval → language ─────────────────────────────────────
 @router.callback_query(SubscribeForm.interval, F.data.startswith("interval:"))
 async def process_interval(callback: CallbackQuery, state: FSMContext) -> None:
     hours = int(callback.data.split(":")[1])
+    await state.update_data(interval=hours)
+    await state.set_state(SubscribeForm.language)
+    await callback.message.answer("🌐 Язык статей для уведомлений?", reply_markup=language_kb())
+    await callback.answer()
+
+
+# ── step 5: language → create subscription ──────────────────────────
+@router.callback_query(SubscribeForm.language, F.data.startswith("lang:"))
+async def process_language(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = callback.data.split(":")[1]
     data = await state.get_data()
     await state.clear()
 
     await callback.answer()
+
+    hours = data["interval"]
 
     async with async_session() as session:
         await get_or_create_user(session, callback.from_user.id)
@@ -127,23 +149,52 @@ async def process_interval(callback: CallbackQuery, state: FSMContext) -> None:
             authors=data.get("authors", []),
             journals=data.get("journals", []),
             check_interval_hrs=hours,
+            language=lang,
         )
 
+    lang_label = {"any": "Любой", "ru": "Русский", "en": "English"}.get(lang, lang)
     await callback.message.answer(
         f"✅ Подписка «{name}» создана!\n"
-        f"⏰ Проверка каждые {hours}ч\n\n"
+        f"⏰ Проверка каждые {hours}ч\n"
+        f"🌐 Язык: {lang_label}\n\n"
         "Хочешь сразу найти статьи или просто получать уведомления о новых?",
         reply_markup=after_subscribe_kb(sub.id),
     )
 
 
-# ── "search now" after creating subscription ────────────────────────
+# ── "search now" → prompt count → sort → execute ────────────────────
 @router.callback_query(F.data.startswith("searchnow:"))
-async def cb_search_now_after_sub(callback: CallbackQuery) -> None:
+async def cb_search_now_prompt(callback: CallbackQuery, state: FSMContext) -> None:
     sub_id = int(callback.data.split(":")[1])
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer("🔄 Ищу статьи… Это может занять некоторое время.")
+    await state.update_data(sub_id=sub_id)
+    await state.set_state(SubSearchForm.count)
+    await callback.message.answer(
+        "📊 Сколько результатов на источник?", reply_markup=results_count_kb()
+    )
     await callback.answer()
+
+
+@router.callback_query(SubSearchForm.count, F.data.startswith("count:"))
+async def subsearch_count(callback: CallbackQuery, state: FSMContext) -> None:
+    count = int(callback.data.split(":")[1])
+    await state.update_data(count=count)
+    await state.set_state(SubSearchForm.sort)
+    await callback.message.answer("📋 Сортировка результатов?", reply_markup=sort_kb())
+    await callback.answer()
+
+
+@router.callback_query(SubSearchForm.sort, F.data.startswith("sort:"))
+async def subsearch_sort(callback: CallbackQuery, state: FSMContext) -> None:
+    sort_mode = callback.data.split(":")[1]
+    data = await state.get_data()
+    await state.clear()
+    await callback.answer()
+
+    sub_id = data["sub_id"]
+    count = data.get("count", 10)
+
+    await callback.message.answer("🔄 Ищу статьи… Это может занять некоторое время.")
 
     from sqlalchemy import select
     from app.storage.models import Subscription
@@ -160,7 +211,12 @@ async def cb_search_now_after_sub(callback: CallbackQuery) -> None:
             await callback.message.answer("⚠️ Подписка не найдена.")
             return
 
-        results = await search_and_store(session, subscription=sub)
+        results = await search_and_store(
+            session,
+            subscription=sub,
+            max_per_source=count,
+            sort=sort_mode,
+        )
 
     if not results:
         await callback.message.answer(
@@ -169,7 +225,8 @@ async def cb_search_now_after_sub(callback: CallbackQuery) -> None:
         )
         return
 
-    header = f"📚 Найдено статей: {len(results)}\n\n"
+    sort_label = {"date": "по дате", "cited": "по цитируемости", "relevance": "по релевантности"}.get(sort_mode, "")
+    header = f"📚 Найдено статей: {len(results)} ({sort_label})\n\n"
     chunks: list[str] = [header]
     for i, (article, annotation) in enumerate(results, 1):
         url = article.url if article.url.startswith(("http://", "https://")) else ""

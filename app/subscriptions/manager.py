@@ -39,6 +39,7 @@ async def create_subscription(
     authors: list[str] | None = None,
     journals: list[str] | None = None,
     check_interval_hrs: int = 24,
+    language: str = "any",
 ) -> Subscription:
     sub = Subscription(
         user_id=user_id,
@@ -47,6 +48,7 @@ async def create_subscription(
         authors=authors or [],
         journals=journals or [],
         check_interval_hrs=check_interval_hrs,
+        language=language,
     )
     session.add(sub)
     await session.commit()
@@ -62,18 +64,21 @@ async def search_and_store(
     journals: list[str] | None = None,
     max_per_source: int = 10,
     language: str = "any",
+    sort: str = "date",
 ) -> list[tuple[Article, Annotation]]:
     """Search, store articles, generate missing annotations, optionally link to subscription."""
     kw = keywords or (subscription.keywords if subscription else [])
     au = authors or (subscription.authors if subscription else None) or None
     jn = journals or (subscription.journals if subscription else None) or None
+    lang = language if language != "any" else (subscription.language if subscription else "any")
 
     raw_articles = await _aggregator.search(
         keywords=kw,
         authors=au,
         journals=jn,
         max_per_source=max_per_source,
-        language=language,
+        language=lang,
+        sort=sort,
     )
 
     results: list[tuple[Article, Annotation]] = []

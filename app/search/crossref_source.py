@@ -77,6 +77,7 @@ class CrossRefSource(BaseSource):
 
             journal_name = (item.get("container-title") or [None])[0]
             url = f"https://doi.org/{doi}" if doi else item.get("URL", "")
+            citation_count = item.get("is-referenced-by-count")
 
             if not doi:
                 continue
@@ -91,6 +92,7 @@ class CrossRefSource(BaseSource):
                     journal=journal_name,
                     abstract=abstract or None,
                     published_at=pub_date,
+                    citation_count=citation_count,
                 )
             )
 

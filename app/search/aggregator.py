@@ -46,6 +46,7 @@ class SearchAggregator:
         journals: list[str] | None = None,
         max_per_source: int = 10,
         language: str = "any",
+        sort: str = "date",
     ) -> list[ArticleData]:
         tasks = [
             source.search(keywords, authors, journals, max_per_source)
@@ -72,9 +73,15 @@ class SearchAggregator:
         if language in ("ru", "en"):
             all_articles = [a for a in all_articles if _lang_of(a.title) == language]
 
-        # Sort by date descending (newest first)
-        all_articles.sort(
-            key=lambda a: a.published_at or datetime.min, reverse=True
-        )
+        # Sort
+        if sort == "cited":
+            all_articles.sort(
+                key=lambda a: a.citation_count or 0, reverse=True
+            )
+        elif sort == "date":
+            all_articles.sort(
+                key=lambda a: a.published_at or datetime.min, reverse=True
+            )
+        # sort == "relevance" → keep original order from sources
 
         return all_articles

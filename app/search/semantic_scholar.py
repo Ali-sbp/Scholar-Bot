@@ -25,7 +25,7 @@ class SemanticScholarSource(BaseSource):
         params = {
             "query": query,
             "limit": str(min(max_results, 100)),
-            "fields": "title,authors,abstract,url,externalIds,publicationDate,journal",
+            "fields": "title,authors,abstract,url,externalIds,publicationDate,journal,citationCount",
         }
 
         data = None
@@ -97,6 +97,7 @@ class SemanticScholarSource(BaseSource):
                     journal=journal_name,
                     abstract=paper.get("abstract"),
                     published_at=pub_date,
+                    citation_count=paper.get("citationCount"),
                 )
             )
 

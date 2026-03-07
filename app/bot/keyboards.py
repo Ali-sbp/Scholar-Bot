@@ -66,6 +66,18 @@ def language_kb() -> InlineKeyboardMarkup:
     )
 
 
+def sort_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📅 Новые", callback_data="sort:date"),
+                InlineKeyboardButton(text="📊 Цитируемые", callback_data="sort:cited"),
+                InlineKeyboardButton(text="🎯 Релевантные", callback_data="sort:relevance"),
+            ]
+        ]
+    )
+
+
 def skip_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="⏭ Пропустить", callback_data="skip")]]
