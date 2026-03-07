@@ -6,7 +6,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import config
-from app.bot.handlers import start, subscribe, subscriptions
+from app.bot.handlers import search, start, subscribe, subscriptions
 from app.scheduler.tasks import check_subscriptions
 from app.storage.database import engine
 from app.storage.models import Base
@@ -30,6 +30,7 @@ async def main() -> None:
 
     # Register routers
     dp.include_router(start.router)
+    dp.include_router(search.router)
     dp.include_router(subscribe.router)
     dp.include_router(subscriptions.router)
 

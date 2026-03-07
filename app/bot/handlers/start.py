@@ -34,15 +34,16 @@ async def cmd_start(message: Message) -> None:
 async def cmd_help(message: Message) -> None:
     await message.answer(
         "<b>Команды:</b>\n"
-        "/subscribe — создать подписку\n"
+        "/search — разовый поиск статей\n"
+        "/subscribe — создать подписку на обновления\n"
         "/subscriptions — мои подписки\n"
         "/setemail — настроить email-уведомления\n"
         "/help — помощь\n\n"
         "<b>Как работает:</b>\n"
-        "1. Создай подписку с ключевыми словами\n"
-        "2. Бот ищет статьи на arXiv, Semantic Scholar, CrossRef и CyberLeninka\n"
-        "3. Для каждой статьи генерируется аннотация на русском\n"
-        "4. Бот периодически проверяет новые статьи и присылает уведомления",
+        "1. Используй «Поиск статей» для разового поиска\n"
+        "2. Создай подписку, чтобы получать уведомления о новых статьях\n"
+        "3. Бот ищет на arXiv, Semantic Scholar, CrossRef и CyberLeninka\n"
+        "4. Для каждой статьи генерируется аннотация на русском",
         parse_mode="HTML",
     )
 

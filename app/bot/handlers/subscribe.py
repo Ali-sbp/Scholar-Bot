@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards import interval_kb, main_menu_kb, skip_kb
+from app.bot.keyboards import after_subscribe_kb, interval_kb, main_menu_kb, skip_kb
 from app.storage.database import async_session
 from app.subscriptions.manager import create_subscription, get_or_create_user, search_and_store
 
@@ -24,7 +24,7 @@ class SubscribeForm(StatesGroup):
 
 # ── step 1: keywords ───────────────────────────────────────────────
 @router.message(Command("subscribe"))
-@router.message(F.text == "🔍 Новая подписка")
+@router.message(F.text.contains("Новая подписка"))
 async def start_subscribe(message: Message, state: FSMContext) -> None:
     await state.set_state(SubscribeForm.keywords)
     await message.answer(
@@ -83,14 +83,13 @@ async def process_journals(message: Message, state: FSMContext) -> None:
     await message.answer("⏰ Как часто проверять новые статьи?", reply_markup=interval_kb())
 
 
-# ── step 4: interval → search → show results ───────────────────────
+# ── step 4: interval → create sub → ask search now? ────────────────
 @router.callback_query(SubscribeForm.interval, F.data.startswith("interval:"))
 async def process_interval(callback: CallbackQuery, state: FSMContext) -> None:
     hours = int(callback.data.split(":")[1])
     data = await state.get_data()
     await state.clear()
 
-    await callback.message.answer("🔄 Ищу статьи… Это может занять некоторое время.")
     await callback.answer()
 
     async with async_session() as session:
@@ -107,20 +106,47 @@ async def process_interval(callback: CallbackQuery, state: FSMContext) -> None:
             check_interval_hrs=hours,
         )
 
-        results = await search_and_store(session, sub)
+    await callback.message.answer(
+        f"✅ Подписка «{name}» создана!\n"
+        f"⏰ Проверка каждые {hours}ч\n\n"
+        "Хочешь сразу найти статьи или просто получать уведомления о новых?",
+        reply_markup=after_subscribe_kb(sub.id),
+    )
+
+
+# ── "search now" after creating subscription ────────────────────────
+@router.callback_query(F.data.startswith("searchnow:"))
+async def cb_search_now_after_sub(callback: CallbackQuery) -> None:
+    sub_id = int(callback.data.split(":")[1])
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer("🔄 Ищу статьи… Это может занять некоторое время.")
+    await callback.answer()
+
+    from sqlalchemy import select
+    from app.storage.models import Subscription
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(Subscription).where(
+                Subscription.id == sub_id,
+                Subscription.user_id == callback.from_user.id,
+            )
+        )
+        sub = result.scalar_one_or_none()
+        if not sub:
+            await callback.message.answer("⚠️ Подписка не найдена.")
+            return
+
+        results = await search_and_store(session, subscription=sub)
 
     if not results:
         await callback.message.answer(
-            "😕 Статей пока не найдено. Подписка создана — бот проверит позже.",
+            "😕 Статей пока не найдено. Бот проверит позже автоматически.",
             reply_markup=main_menu_kb(),
         )
         return
 
-    # Build response
-    header = (
-        f"✅ Подписка создана! Найдено статей: {len(results)}\n"
-        f"⏰ Проверка каждые {hours}ч\n\n"
-    )
+    header = f"📚 Найдено статей: {len(results)}\n\n"
     chunks: list[str] = [header]
     for i, (article, annotation) in enumerate(results, 1):
         url = article.url if article.url.startswith(("http://", "https://")) else ""
@@ -144,3 +170,14 @@ async def process_interval(callback: CallbackQuery, state: FSMContext) -> None:
             disable_web_page_preview=True,
             reply_markup=main_menu_kb(),
         )
+
+
+# ── "notify only" — just confirm ────────────────────────────────────
+@router.callback_query(F.data.startswith("notifyonly:"))
+async def cb_notify_only(callback: CallbackQuery) -> None:
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.answer()
+    await callback.message.answer(
+        "👍 Отлично! Бот будет проверять новые статьи автоматически и присылать уведомления.",
+        reply_markup=main_menu_kb(),
+    )

@@ -19,7 +19,7 @@ SYSTEM_PROMPT = (
     "Отвечай ТОЛЬКО текстом аннотации, без вводных фраз."
 )
 
-MODEL = "llama-3.1-70b-versatile"
+MODEL = "llama-3.3-70b-versatile"
 
 
 async def generate_annotation(title: str, abstract: str | None) -> tuple[str, str]:

@@ -9,8 +9,9 @@ from aiogram.types import (
 def main_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🔍 Новая подписка"), KeyboardButton(text="📋 Мои подписки")],
-            [KeyboardButton(text="📧 Настроить email"), KeyboardButton(text="ℹ️ Помощь")],
+            [KeyboardButton(text="🔍 Поиск статей"), KeyboardButton(text="📌 Новая подписка")],
+            [KeyboardButton(text="📋 Мои подписки"), KeyboardButton(text="📧 Настроить email")],
+            [KeyboardButton(text="ℹ️ Помощь")],
         ],
         resize_keyboard=True,
     )
@@ -40,6 +41,17 @@ def subscription_actions_kb(sub_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="🔄 Проверить сейчас", callback_data=f"check:{sub_id}"),
                 InlineKeyboardButton(text="❌ Удалить", callback_data=f"delete:{sub_id}"),
+            ]
+        ]
+    )
+
+
+def after_subscribe_kb(sub_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔍 Искать сейчас", callback_data=f"searchnow:{sub_id}"),
+                InlineKeyboardButton(text="⏭ Только уведомлять", callback_data=f"notifyonly:{sub_id}"),
             ]
         ]
     )

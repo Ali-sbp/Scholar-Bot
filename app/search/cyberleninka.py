@@ -49,30 +49,57 @@ class CyberLeninkaSource(BaseSource):
         soup = BeautifulSoup(html, "lxml")
         articles: list[ArticleData] = []
 
-        # CyberLeninka renders search results inside <ul> with <li> items
-        for item in soup.select("ul.list li"):
+        # CyberLeninka uses multiple possible layouts — try all known selectors
+        items = soup.select("ul.list li")
+        if not items:
+            items = soup.select(".search-results .article-item")
+        if not items:
+            items = soup.select("article")
+        if not items:
+            # Fallback: find all links pointing to /article/
+            items = []
+            for a_tag in soup.find_all("a", href=lambda h: h and "/article/" in h):
+                parent = a_tag.find_parent(["li", "div", "article"])
+                if parent and parent not in items:
+                    items.append(parent)
+
+        for item in items:
             link_tag = item.select_one("a[href*='/article/']")
+            if not link_tag:
+                link_tag = item if item.name == "a" and "/article/" in item.get("href", "") else None
             if not link_tag:
                 continue
 
             href = link_tag.get("href", "")
             full_url = f"https://cyberleninka.ru{href}" if href.startswith("/") else href
 
-            # Title is usually inside a span within the link
-            title_tag = link_tag.select_one("span") or link_tag
-            title = title_tag.get_text(strip=True)
+            # Title: try multiple selectors
+            title = ""
+            for sel in ["h2", "h3", ".title", "span"]:
+                tag = item.select_one(sel)
+                if tag:
+                    title = tag.get_text(strip=True)
+                    break
+            if not title:
+                title = link_tag.get_text(strip=True)
             if not title:
                 continue
 
             # Annotation / snippet text
-            snippet_tag = item.select_one(".abstract, .annotation, p")
-            abstract = snippet_tag.get_text(strip=True) if snippet_tag else None
+            abstract = None
+            for sel in [".abstract", ".annotation", ".descr", "p"]:
+                tag = item.select_one(sel)
+                if tag and len(tag.get_text(strip=True)) > 20:
+                    abstract = tag.get_text(strip=True)
+                    break
 
             # Authors
-            author_tag = item.select_one(".author, .authors")
             author_list: list[str] = []
-            if author_tag:
-                author_list = [a.strip() for a in author_tag.get_text().split(",") if a.strip()]
+            for sel in [".author", ".authors", "span.author"]:
+                tag = item.select_one(sel)
+                if tag:
+                    author_list = [a.strip() for a in tag.get_text().split(",") if a.strip()]
+                    break
 
             slug = href.rstrip("/").split("/")[-1] if href else title[:60]
 

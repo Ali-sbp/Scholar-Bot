@@ -71,7 +71,9 @@ class ArxivSource(BaseSource):
             pub_dt = None
             if published_el is not None:
                 try:
-                    pub_dt = datetime.fromisoformat(published_el.text.strip().replace("Z", "+00:00"))
+                    dt = datetime.fromisoformat(published_el.text.strip().replace("Z", "+00:00"))
+                    # Strip timezone — DB uses naive timestamps
+                    pub_dt = dt.replace(tzinfo=None)
                 except ValueError:
                     pass
 

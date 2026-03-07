@@ -56,73 +56,93 @@ async def create_subscription(
 
 async def search_and_store(
     session: AsyncSession,
-    subscription: Subscription,
+    subscription: Subscription | None = None,
+    keywords: list[str] | None = None,
+    authors: list[str] | None = None,
+    journals: list[str] | None = None,
 ) -> list[tuple[Article, Annotation]]:
-    """Search, store articles, generate missing annotations, link to subscription."""
+    """Search, store articles, generate missing annotations, optionally link to subscription."""
+    kw = keywords or (subscription.keywords if subscription else [])
+    au = authors or (subscription.authors if subscription else None) or None
+    jn = journals or (subscription.journals if subscription else None) or None
+
     raw_articles = await _aggregator.search(
-        keywords=subscription.keywords,
-        authors=subscription.authors or None,
-        journals=subscription.journals or None,
+        keywords=kw,
+        authors=au,
+        journals=jn,
         max_per_source=5,
     )
 
     results: list[tuple[Article, Annotation]] = []
 
     for article_data in raw_articles:
-        # Upsert article
-        existing = await session.execute(
-            select(Article).where(Article.external_id == article_data.external_id)
-        )
-        article = existing.scalar_one_or_none()
+        try:
+            # Strip timezone if present (DB uses naive timestamps)
+            pub_at = article_data.published_at
+            if pub_at and pub_at.tzinfo is not None:
+                pub_at = pub_at.replace(tzinfo=None)
 
-        if not article:
-            article = Article(
-                external_id=article_data.external_id,
-                source=article_data.source,
-                title=article_data.title,
-                url=article_data.url,
-                authors=article_data.authors,
-                journal=article_data.journal,
-                abstract=article_data.abstract,
-                published_at=article_data.published_at,
+            # Upsert article
+            existing = await session.execute(
+                select(Article).where(Article.external_id == article_data.external_id)
             )
-            session.add(article)
-            await session.flush()
+            article = existing.scalar_one_or_none()
 
-        # Ensure annotation exists
-        ann_result = await session.execute(
-            select(Annotation).where(Annotation.article_id == article.id)
-        )
-        annotation = ann_result.scalar_one_or_none()
-
-        if not annotation:
-            text_ru, model_used = await generate_annotation(article.title, article.abstract)
-            annotation = Annotation(
-                article_id=article.id,
-                text_ru=text_ru,
-                model_used=model_used,
-            )
-            session.add(annotation)
-            await session.flush()
-
-        # Link article ↔ subscription (idempotent)
-        link_result = await session.execute(
-            select(SubscriptionArticle).where(
-                SubscriptionArticle.subscription_id == subscription.id,
-                SubscriptionArticle.article_id == article.id,
-            )
-        )
-        if not link_result.scalar_one_or_none():
-            session.add(
-                SubscriptionArticle(
-                    subscription_id=subscription.id,
-                    article_id=article.id,
+            if not article:
+                article = Article(
+                    external_id=article_data.external_id,
+                    source=article_data.source,
+                    title=article_data.title,
+                    url=article_data.url,
+                    authors=article_data.authors,
+                    journal=article_data.journal,
+                    abstract=article_data.abstract,
+                    published_at=pub_at,
                 )
+                session.add(article)
+                await session.flush()
+
+            # Ensure annotation exists
+            ann_result = await session.execute(
+                select(Annotation).where(Annotation.article_id == article.id)
             )
+            annotation = ann_result.scalar_one_or_none()
 
-        results.append((article, annotation))
+            if not annotation:
+                text_ru, model_used = await generate_annotation(article.title, article.abstract)
+                annotation = Annotation(
+                    article_id=article.id,
+                    text_ru=text_ru,
+                    model_used=model_used,
+                )
+                session.add(annotation)
+                await session.flush()
 
-    subscription.last_checked_at = datetime.utcnow()
+            # Link article ↔ subscription if provided
+            if subscription:
+                link_result = await session.execute(
+                    select(SubscriptionArticle).where(
+                        SubscriptionArticle.subscription_id == subscription.id,
+                        SubscriptionArticle.article_id == article.id,
+                    )
+                )
+                if not link_result.scalar_one_or_none():
+                    session.add(
+                        SubscriptionArticle(
+                            subscription_id=subscription.id,
+                            article_id=article.id,
+                        )
+                    )
+
+            results.append((article, annotation))
+
+        except Exception as e:
+            logger.error("Error processing article %s: %s", article_data.external_id, e)
+            await session.rollback()
+            continue
+
+    if subscription:
+        subscription.last_checked_at = datetime.utcnow()
     await session.commit()
 
     return results

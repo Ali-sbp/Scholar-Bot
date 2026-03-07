@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -27,15 +28,26 @@ class SemanticScholarSource(BaseSource):
             "fields": "title,authors,abstract,url,externalIds,publicationDate,journal",
         }
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(S2_API, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                    if resp.status != 200:
-                        logger.warning("Semantic Scholar returned status %s", resp.status)
-                        return []
-                    data = await resp.json()
-        except Exception as e:
-            logger.error("Semantic Scholar request failed: %s", e)
+        data = None
+        for attempt in range(3):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(S2_API, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                        if resp.status == 429:
+                            wait = 2 ** attempt
+                            logger.warning("Semantic Scholar rate-limited, retrying in %ds", wait)
+                            await asyncio.sleep(wait)
+                            continue
+                        if resp.status != 200:
+                            logger.warning("Semantic Scholar returned status %s", resp.status)
+                            return []
+                        data = await resp.json()
+                        break
+            except Exception as e:
+                logger.error("Semantic Scholar request failed: %s", e)
+                return []
+
+        if data is None:
             return []
 
         articles: list[ArticleData] = []
