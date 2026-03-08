@@ -51,13 +51,14 @@ async def check_subscriptions(bot: Bot) -> None:
                     select(User).where(User.id == sub.user_id)
                 )
                 user = user_result.scalar_one_or_none()
+                email_sent = False
                 if user and user.email:
-                    await send_email_notification(user.email, sub.name, pairs)
+                    email_sent = await send_email_notification(user.email, sub.name, pairs)
 
                 # Mark as notified
                 for _article, _ann, sa in new_items:
                     sa.notified_telegram = True
-                    sa.notified_email = bool(user and user.email)
+                    sa.notified_email = email_sent
 
                 await session.commit()
 

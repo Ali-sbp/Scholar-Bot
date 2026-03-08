@@ -17,10 +17,10 @@ async def send_email_notification(
     to_email: str,
     subscription_name: str,
     articles: list[tuple[Article, Annotation]],
-) -> None:
-    """Send article digest over SMTP."""
+) -> bool:
+    """Send article digest over SMTP. Returns True on success."""
     if not articles or not to_email or not config.SMTP_USER:
-        return
+        return False
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"Новые статьи по подписке «{subscription_name}»"
@@ -55,5 +55,7 @@ async def send_email_notification(
             use_tls=False,
             start_tls=True,
         )
+        return True
     except Exception as e:
         logger.error("Failed to send email to %s: %s", to_email, e)
+        return False
