@@ -3,14 +3,14 @@ from __future__ import annotations
 import logging
 from html import escape
 
-import aiosmtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import httpx
 
 from app.config import config
 from app.storage.models import Annotation, Article
 
 logger = logging.getLogger(__name__)
+
+RESEND_URL = "https://api.resend.com/emails"
 
 
 async def send_email_notification(
@@ -18,14 +18,9 @@ async def send_email_notification(
     subscription_name: str,
     articles: list[tuple[Article, Annotation]],
 ) -> bool:
-    """Send article digest over SMTP. Returns True on success."""
-    if not articles or not to_email or not config.SMTP_USER:
+    """Send article digest via Resend HTTP API. Returns True on success."""
+    if not articles or not to_email or not config.RESEND_API_KEY:
         return False
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Новые статьи по подписке «{subscription_name}»"
-    msg["From"] = config.EMAIL_FROM
-    msg["To"] = to_email
 
     rows: list[str] = []
     for article, annotation in articles:
@@ -43,19 +38,25 @@ async def send_email_notification(
         f"<h2>Новые статьи по подписке «{escape(subscription_name)}»</h2>"
         + "\n".join(rows)
     )
-    msg.attach(MIMEText(html, "html", "utf-8"))
 
     try:
-        await aiosmtplib.send(
-            msg,
-            hostname=config.SMTP_HOST,
-            port=config.SMTP_PORT,
-            username=config.SMTP_USER,
-            password=config.SMTP_PASSWORD,
-            use_tls=False,
-            start_tls=True,
-        )
-        return True
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                RESEND_URL,
+                headers={"Authorization": f"Bearer {config.RESEND_API_KEY}"},
+                json={
+                    "from": config.EMAIL_FROM,
+                    "to": [to_email],
+                    "subject": f"Новые статьи по подписке «{subscription_name}»",
+                    "html": html,
+                },
+                timeout=15,
+            )
+            if resp.status_code in (200, 201):
+                logger.info("Email sent to %s via Resend", to_email)
+                return True
+            logger.error("Resend API error %s: %s", resp.status_code, resp.text)
+            return False
     except Exception as e:
         logger.error("Failed to send email to %s: %s", to_email, e)
         return False
