@@ -85,14 +85,29 @@ async def cb_check_now(callback: CallbackQuery) -> None:
         results = await search_and_store(session, sub)
 
     if results:
-        text = f"Найдено {len(results)} статей:\n\n"
+        header = f"📚 Найдено статей: {len(results)}\n\n"
+        chunks: list[str] = [header]
         for i, (article, annotation) in enumerate(results[:10], 1):
             url = article.url if article.url.startswith(("http://", "https://")) else ""
-            text += f"{i}. <b>{escape(article.title)}</b>\n" f"   📝 {escape(annotation.text_ru)}\n"
+            entry = f"{i}. <b>{escape(article.title)}</b>\n   📝 {escape(annotation.text_ru)}\n"
             if url:
-                text += f'   🔗 <a href="{escape(url)}">Источник</a>\n\n'
+                entry += f'   🔗 <a href="{escape(url)}">Источник</a> ({escape(article.source)})\n\n'
             else:
-                text += "\n"
-        await callback.message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
+                entry += f"   📎 {escape(article.source)}\n\n"
+
+            if len("".join(chunks)) + len(entry) > 4000:
+                await callback.message.answer(
+                    "".join(chunks), parse_mode="HTML", disable_web_page_preview=True
+                )
+                chunks = ["📚 Продолжение:\n\n"]
+            chunks.append(entry)
+
+        if chunks:
+            await callback.message.answer(
+                "".join(chunks),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+                reply_markup=main_menu_kb(),
+            )
     else:
-        await callback.message.answer("Новых статей не найдено.")
+        await callback.message.answer("Новых статей не найдено.", reply_markup=main_menu_kb())
